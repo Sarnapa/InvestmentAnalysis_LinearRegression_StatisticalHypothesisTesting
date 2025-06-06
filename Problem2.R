@@ -18,11 +18,10 @@ calculate_return_rates <- function(df, months_count) {
     filter(!is.na(Close))
 }
 
-plot_hist <- function(hist_data) {
+plot_hist <- function(hist_data, plot_title = "Histogram próby określającej 6-miesięczne stopy zwrotu\ndla akcji KGHM Polska Miedź SA\nw okresie 01.2015 - 12.2024") 
+{
   plot(hist_data, freq = FALSE,
-       main = "Histogram próby określającej 6-miesięczne stopy zwrotu 
-       dla akcji KGHM Polska Miedź SA
-       w okresie 01.2015 - 12.2024",
+       main = plot_title,
        xlab = "6-miesięczne stopy zwrotu", ylab = "Gęstość", 
        col = "lightblue", border = "blue", cex.main = 0.8)
 }
@@ -77,7 +76,9 @@ fit_log_normal <- function(data, offset) {
   return(fit)
 }
 
-compare_distribution <- function(hist_data, fit_object, distribution = "normal", offset = 0) {
+compare_distribution <- function(hist_data, fit_object, distribution = "normal", offset = 0,
+                                 plot_title = "Histogram próby określającej 6-miesięczne stopy zwrotu\ndla akcji KGHM Polska Miedź SA\nw okresie 01.2015 - 12.2024") 
+  {
   distribution_color = "red"  
   
   # Ekstrakcja granic wykresu
@@ -85,7 +86,7 @@ compare_distribution <- function(hist_data, fit_object, distribution = "normal",
   x_max <- max(hist_data$breaks)
   x_vals <- seq(x_min, x_max, length.out = 500)
   
-  plot_hist(hist_data)
+  plot_hist(hist_data, plot_title)
 
   if (distribution == "normal") {
     mean <- fit_object$estimate["mean"]
@@ -111,7 +112,8 @@ compare_distribution <- function(hist_data, fit_object, distribution = "normal",
   }
 }
 
-compare_cdf <- function(data, fit_object, distribution = "normal", offset = 0) {
+compare_cdf <- function(data, fit_object, distribution = "normal", offset = 0, plot_title = "Porównanie dystrybuanty z próby określającej 6-miesięczne stopy zwrotu\ndla akcji KGHM Polska Miedź SA w okresie 01.2015 - 12.2024\nz dystrybuantą wybranego rozkładu")
+{
   ecdf_color = "blue"
   cdf_color = "red"
   
@@ -120,9 +122,7 @@ compare_cdf <- function(data, fit_object, distribution = "normal", offset = 0) {
   x_max <- max(data)
   x_vals <- seq(x_min, x_max, length.out = 500)
   
-  plot(ecdf(data), main = "Porównanie dystrybuanty z próby określającej 6-miesięczne stopy zwrotu
-    dla akcji KGHM Polska Miedź SA w okresie 01.2015 - 12.2024
-    z dystrybuantą wybranego rozkładu",
+  plot(ecdf(data), main = plot_title,
     xlab = "6-miesięczna stopa zwrotu", ylab = "Dystrybuanta",
     col = ecdf_color, verticals = TRUE, do.points = FALSE, lwd = 2, cex.main = 0.8, , yaxt = "n")
   
@@ -160,6 +160,14 @@ compare_cdf <- function(data, fit_object, distribution = "normal", offset = 0) {
   }
 }
 
+scale_data <- function(return_rates, fit_t_student_res)
+{
+  m <- fit_t_student_res$estimate["m"]
+  s <- fit_t_student_res$estimate["s"]
+  df <- fit_t_student_res$estimate["df"]
+  (return_rates - m) / s  
+}
+
 kgh_df <- read_data("kgh_m.csv")
 
 # Obliczenie 6 miesięcznych stóp zwrotu dla podanego instrumentu
@@ -189,15 +197,66 @@ compare_cdf(kgh_6months_return_rates_df$Return_Rate, fit_t_student_res, "t")
 #compare_cdf(kgh_6months_return_rates_df$Return_Rate, fit_log_normal_res, "lognormal", offset)
 
 # Standaryzacja rozkładu z próby do wykonania testu zgodności z rozkładem
-m <- fit_t_student_res$estimate["m"]
-s <- fit_t_student_res$estimate["s"]
-df <- fit_t_student_res$estimate["df"]
-return_rates_scaled <- (kgh_6months_return_rates_df$Return_Rate - m) / s
+return_rates_scaled <- scale_data(kgh_6months_return_rates_df$Return_Rate, fit_t_student_res)
 
 # Wykonanie testu Kolmogorova–Smirnova
 # Krótki opis wyniku:
 # D - największa różnica między dystrybuantą empiryczną z teoretyczną
 # D - wyszło 0.088783, co z tego co widziałem jest wartością umiarkowaną, nie jest to idealne dopasowanie, ale w miarę zgodne
 # p-value - wyszło 0.33, więc nie ma pretekstu do odrzucenia H0, więc możemy przyjąć, że nasz rozkład jest zgodny z rozkładem T-Studenta z wyestymowanymi stopniami swobody (~3.6)
+df <- fit_t_student_res$estimate["df"]
 ks_result <- ks.test(return_rates_scaled, "pt", df = df)
 print(ks_result)
+
+# Poniżej kod zawierający rozwiązanie podpunktu 2
+
+# Tworzymy warunek 3 spadków z rzędu
+kgh_6months_return_rates_with_strategy_df <- kgh_6months_return_rates_df %>%
+  arrange(Start_Investment_Month) %>%
+  mutate(
+    Drop1 = Open < lag(Open, 1),
+    Drop2 = lag(Open, 1) < lag(Open, 2),
+    Drop3 = lag(Open, 2) < lag(Open, 3),
+    Three_drops = Drop1 & Drop2 & Drop3
+  )
+
+# Wybieramy tylko te wiersze, które nie miały 3 spadków z rzędu
+kgh_6months_return_rates_filtered_df <- kgh_6months_return_rates_with_strategy_df %>%
+  filter(!Three_drops & !is.na(Return_Rate))
+
+# Sprawdźmy, ile przypadków spełnia ten warunek
+cat("Liczba wierszy po odfiltrowaniu 3 spadków:", nrow(kgh_6months_return_rates_filtered_df), "\n")
+
+# Dopasowanie nowych zyskówd do Rozkładu T-Studenta
+filtered_return_rates <- kgh_6months_return_rates_filtered_df$Return_Rate
+filtered_return_rates_fit_t_student_res <- fit_t_student(filtered_return_rates, 3)
+
+# Porównanie średniej i rozrzutu pierwotnego i nowego rozkładu
+kgh_6months_return_rates_mean <- mean(kgh_6months_return_rates_df$Return_Rate)
+filtered_return_rates_mean <- mean(filtered_return_rates)
+
+kgh_6months_return_rates_sd <- sd(kgh_6months_return_rates_df$Return_Rate)
+filtered_return_rates_sd <- sd(filtered_return_rates)
+
+cat("Porównanie średniego zysku i jego rozrzutu dla rozkładu z pierwotnej próby oraz nowego rozkładu:\n")
+cat("Rozkład z pierwotnej próby: średnia:", kgh_6months_return_rates_mean, 
+    ", odchylenie standardowe:", kgh_6months_return_rates_sd, "\n")
+cat("Rozkład z próby uwzględniającej strategię: średnia:", filtered_return_rates_mean, 
+    ", odchylenie standardowe:", filtered_return_rates_sd, "\n")
+
+hist_filtered_data <- hist(filtered_return_rates, breaks = 30, plot = FALSE)
+compare_distribution(hist_filtered_data, filtered_return_rates_fit_t_student_res, "t",
+                     plot_title = "Histogram próby określającej 6-miesięczne stopy zwrotu\nz uwzględnieniem własnej strategii\ndla akcji KGHM Polska Miedź SA w okresie 01.2015 - 12.2024")
+compare_cdf(filtered_return_rates, filtered_return_rates_fit_t_student_res, distribution = "t",
+            plot_title = "Porównanie dystrybuanty z próby określającej 6-miesięczne stopy zwrotu\nz uwzględnieniem własnej strategii\ndla akcji KGHM Polska Miedź SA w okresie 01.2015 - 12.2024\nz dystrybuantą wybranego rozkładu")
+
+# Standaryzacja rozkładu z próby do wykonania testu zgodności z rozkładem
+filtered_return_rates_scaled <- scale_data(filtered_return_rates, filtered_return_rates_fit_t_student_res)
+
+# Wykonanie testu Kolmogorova–Smirnova dla rozkładu z próby z własną strategią
+# Krótki opis wyniku:
+# D - wyszło 0.10771, trochę gorzej, ale dalej możemy uznać daną wartość za umiarkowaną
+# p-value - wyszło 0.1875, więc gorzej, ale raczej dalej nie mamy pretekstu do odrzucenia H0, więc możemy przyjąć, że nasz rozkład jest zgodny z rozkładem T-Studenta z wyestymowanymi stopniami swobody (~6.09)
+filtered_df <- filtered_return_rates_fit_t_student_res$estimate["df"]
+filtered_ks_result <- ks.test(filtered_return_rates_scaled, "pt", df = filtered_df)
+print(filtered_ks_result)
