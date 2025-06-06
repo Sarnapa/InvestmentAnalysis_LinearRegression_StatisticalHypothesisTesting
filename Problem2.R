@@ -173,10 +173,10 @@ plot_hist(hist_data)
 # Zakomentowane są rozkłady, które były analizowane, ale wybór padł na rozkład T - Studenta
 # Rozpoczynamy szukanie dopasowania od 3 stopni swobody.
 fit_t_student_res <- fit_t_student(kgh_6months_return_rates_df$Return_Rate, 3)
-#fit_normal_res <- fit_normal(kgh_6months_return_rates_df$Return_Rate)
-## +0.01 żeby na pewno było większe od 0
-#offset <- abs(min(kgh_6months_return_rates_df$Return_Rate)) + 0.01
-#fit_log_normal_res <- fit_log_normal(kgh_6months_return_rates_df$Return_Rate, offset)
+# fit_normal_res <- fit_normal(kgh_6months_return_rates_df$Return_Rate)
+# # +0.01 żeby na pewno było większe od 0
+# offset <- abs(min(kgh_6months_return_rates_df$Return_Rate)) + 0.01
+# fit_log_normal_res <- fit_log_normal(kgh_6months_return_rates_df$Return_Rate, offset)
 
 # Porównanie histogramu z wybranym rozkładem
 compare_distribution(hist_data, fit_t_student_res, "t")
@@ -187,3 +187,17 @@ compare_distribution(hist_data, fit_t_student_res, "t")
 compare_cdf(kgh_6months_return_rates_df$Return_Rate, fit_t_student_res, "t")
 #compare_cdf(kgh_6months_return_rates_df$Return_Rate, fit_normal_res, "normal")
 #compare_cdf(kgh_6months_return_rates_df$Return_Rate, fit_log_normal_res, "lognormal", offset)
+
+# Standaryzacja rozkładu z próby do wykonania testu zgodności z rozkładem
+m <- fit_t_student_res$estimate["m"]
+s <- fit_t_student_res$estimate["s"]
+df <- fit_t_student_res$estimate["df"]
+return_rates_scaled <- (kgh_6months_return_rates_df$Return_Rate - m) / s
+
+# Wykonanie testu Kolmogorova–Smirnova
+# Krótki opis wyniku:
+# D - największa różnica między dystrybuantą empiryczną z teoretyczną
+# D - wyszło 0.088783, co z tego co widziałem jest wartością umiarkowaną, nie jest to idealne dopasowanie, ale w miarę zgodne
+# p-value - wyszło 0.33, więc nie ma pretekstu do odrzucenia H0, więc możemy przyjąć, że nasz rozkład jest zgodny z rozkładem T-Studenta z wyestymowanymi stopniami swobody (~3.6)
+ks_result <- ks.test(return_rates_scaled, "pt", df = df)
+print(ks_result)
